@@ -161,8 +161,8 @@ flowchart LR
 ```mermaid
 flowchart TD
     A[进入RELEASE阶段] --> B[用户填写版本信息]
-    B --> C{version_name 为空?}
-    C -->|是| D[生成默认值 v{timestamp}]
+    B --> C{version_name为空}
+    C -->|是| D[生成默认值v时间戳]
     C -->|否| E[使用用户输入]
     D --> F[生成完整Tag]
     E --> F

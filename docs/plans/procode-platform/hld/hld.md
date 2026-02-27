@@ -88,20 +88,87 @@ flowchart TD
 - **技术栈**：用户从预定义列表选择（一期仅支持 `python`，后续扩展 `java`、`nodejs`）
 - **脚手架模板**：根据选择的技术栈自动关联对应模板，无需用户手动配置
 
-### 3.2 迭代发布流程（一期简化）
+### 3.2 迭代发布流程
+
+#### 完整流程
+
+迭代从创建到发布经历多个阶段，每个阶段可触发阶段流水线执行代码检查、构建、打包、部署。
 
 ```mermaid
-flowchart TD
-    A[创建迭代] --> B[选择来源分支]
-    B --> C[进入发布阶段]
-    C --> D[打Tag]
-    D --> E[触发流水线]
-    E --> F[代码检查]
-    F --> G[构建]
-    G --> H[打包]
-    H --> I[部署]
-    I --> J[发布完成]
+flowchart LR
+    subgraph 创建
+        A1[创建迭代] --> A2[选择来源分支]
+    end
+
+    subgraph 开发阶段
+        A2 --> B1[DEVELOPING]
+        B1 --> B2[功能开发/代码提交]
+    end
+
+    subgraph 测试阶段
+        B2 --> C1[TESTING]
+        C1 --> C2[触发阶段流水线]
+        C2 --> C3[部署到测试环境]
+        C3 --> C4[测试验证]
+    end
+
+    subgraph 预发阶段
+        C4 --> D1[STAGING]
+        D1 --> D2[触发阶段流水线]
+        D2 --> D3[部署到预发环境]
+        D3 --> D4[预发验证]
+    end
+
+    subgraph 发布阶段
+        D4 --> E1[RELEASE]
+        E1 --> E2[打Tag]
+        E2 --> E3[触发阶段流水线]
+        E3 --> E4[部署到生产环境]
+        E4 --> E5[RELEASED]
+    end
 ```
+
+**阶段流水线内部执行（每个阶段触发时）：**
+
+```mermaid
+flowchart LR
+    A[触发] --> B[CODE_CHECK]
+    B --> C[BUILD]
+    C --> D[PACKAGE]
+    D --> E[DEPLOY]
+    E --> F[完成]
+```
+
+#### 简化流程（一期实现）
+
+一期简化为单阶段发布流程，跳过测试和预发阶段。
+
+```mermaid
+flowchart LR
+    subgraph 创建
+        A1[创建迭代] --> A2[选择来源分支]
+    end
+
+    subgraph 发布阶段
+        A2 --> B1[RELEASE]
+        B1 --> B2[打Tag]
+        B2 --> B3[触发阶段流水线]
+        B3 --> B4[CODE_CHECK]
+        B4 --> B5[BUILD]
+        B5 --> B6[PACKAGE]
+        B6 --> B7[DEPLOY]
+        B7 --> B8[RELEASED]
+    end
+```
+
+#### 完整 vs 简化 对比
+
+| 对比项 | 完整流程 | 简化流程（一期） |
+|--------|----------|------------------|
+| 迭代阶段 | DEVELOPING → TESTING → STAGING → RELEASE | 直接 RELEASE |
+| 环境数量 | 3个（测试、预发、生产） | 1个（生产） |
+| 阶段流水线次数 | 3次（测试、预发、发布各一次） | 1次 |
+| 适用场景 | 正式生产环境 | 快速迭代 / 内部测试 |
 
 ### 3.3 流水线架构
 

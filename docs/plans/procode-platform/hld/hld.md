@@ -150,39 +150,46 @@ flowchart LR
 
 ### 3.6 流水线推进驱动机制
 
-**两种流水线，两种驱动策略：**
+**统一的阶段配置模型：**
 
-| 流水线类型 | 驱动方式 | 说明 |
-|-----------|---------|------|
-| **迭代流水线** | 手动触发 | 每个阶段进入需用户确认 |
-| **阶段流水线** | 阶段级可配置 | 每个阶段可独立配置自动/手动 |
+所有流水线阶段使用统一的配置模型，通过配置区分不同驱动方式。
 
-#### 迭代流水线驱动
-
-```
-用户点击 → DEVELOPING → 用户点击 → TESTING → 用户点击 → STAGING → 用户点击 → RELEASE
-```
-
-每个阶段进入都需要用户手动触发，确保人对发布流程有完全控制。
-
-#### 阶段流水线驱动
-
-**阶段级别可配置项：**
-
-| 配置项 | 说明 | 示例 |
-|-------|------|------|
-| `autoProceed` | 阶段成功后是否自动进入下一阶段 | true/false |
+| 配置项 | 说明 | 可选值 |
+|-------|------|--------|
+| `driveMode` | 驱动方式 | MANUAL（手动推进）/ AUTO（自动推进）/ ASYNC（异步驱动） |
 | `retryMode` | 失败后的重试方式 | AUTO / MANUAL |
 | `maxRetries` | 自动重试最大次数 | 0-5 |
+| `pollInterval` | 轮询间隔（仅ASYNC） | 秒 |
+| `pollTimeout` | 超时时间（仅ASYNC） | 秒 |
 
-**默认配置：**
+**三种驱动方式说明：**
 
-| 阶段 | autoProceed | retryMode | maxRetries |
-|------|-------------|-----------|------------|
-| CODE_CHECK | true | AUTO | 3 |
-| BUILD | true | AUTO | 2 |
-| PACKAGE | true | MANUAL | 0 |
-| DEPLOY | false | MANUAL | 0 |
+| 驱动方式 | 说明 | 适用场景 |
+|---------|------|----------|
+| MANUAL | 阶段完成后需手动点击进入下一阶段 | 需人工确认的关键阶段 |
+| AUTO | 阶段成功后自动进入下一阶段 | 可自动流转的阶段 |
+| ASYNC | 阶段启动后异步等待结果，轮询+回调双保险 | 长时间异步操作（如部署） |
+
+#### 迭代流水线默认配置
+
+迭代流水线的所有阶段默认配置为**手动推进**，确保人对发布流程有完全控制。
+
+| 阶段 | driveMode | retryMode | maxRetries |
+|------|-----------|-----------|------------|
+| DEVELOPING | MANUAL | MANUAL | 0 |
+| TESTING | MANUAL | MANUAL | 0 |
+| STAGING | MANUAL | MANUAL | 0 |
+| RELEASE | MANUAL | MANUAL | 0 |
+
+#### 阶段流水线默认配置
+
+| 阶段 | driveMode | retryMode | maxRetries | 说明 |
+|------|-----------|-----------|------------|------|
+| CODE_CHECK | AUTO | AUTO | 3 | 自动检查，失败自动重试 |
+| BUILD | AUTO | AUTO | 2 | 自动构建，失败自动重试 |
+| PACKAGE | AUTO | MANUAL | 0 | 自动打包，失败需人工排查 |
+| DEPLOY | ASYNC | MANUAL | 0 | 异步部署，轮询+回调 |
+| | | | | pollInterval=30s, pollTimeout=30min |
 
 #### DEPLOY 阶段异步驱动
 

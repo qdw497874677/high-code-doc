@@ -272,47 +272,86 @@ sequenceDiagram
 
 ### 2.5 流水线推进驱动机制
 
-#### 迭代流水线驱动（手动触发）
+**统一的阶段配置模型：**
 
-```mermaid
-sequenceDiagram
-    participant U as 用户
-    participant IS as IterationService
-    participant PS as PipelineService
-    participant DB as 数据库
+所有流水线阶段使用统一的配置模型，通过`driveMode`区分三种驱动方式。
 
-    U->>IS: POST /iterations/{id}/proceed
-    IS->>DB: 查询当前阶段
-    IS->>IS: 校验是否可推进
-    alt 可推进
-        IS->>DB: 更新迭代状态
-        alt 进入发布阶段
-            IS->>PS: 创建阶段流水线
-            PS->>DB: 保存流水线
-            PS->>PS: 启动阶段流水线
-        end
-        IS-->>U: 推进成功
-    else 不可推进
-        IS-->>U: 推进失败（前置条件不满足）
-    end
-```
-
-#### 阶段流水线驱动（阶段级可配置）
-
-**阶段配置数据结构：**
+#### 阶段配置数据结构
 
 ```java
 // StageConfig.java
 public class StageConfig {
-    private String stage;           // CODE_CHECK / BUILD / PACKAGE / DEPLOY
-    private boolean autoProceed;    // 成功后自动进入下一阶段
-    private RetryMode retryMode;    // AUTO / MANUAL
-    private int maxRetries;         // 自动重试最大次数
-    private int currentRetries;     // 当前已重试次数
+    private String stage;              // 阶段名称
+    private DriveMode driveMode;       // MANUAL / AUTO / ASYNC
+    private RetryMode retryMode;       // AUTO / MANUAL
+    private int maxRetries;            // 自动重试最大次数
+    private int currentRetries;        // 当前已重试次数
+    
+    // 仅 ASYNC 模式使用
+    private int pollInterval;          // 轮询间隔（秒）
+    private int pollTimeout;           // 超时时间（秒）
+}
+
+// DriveMode.java
+public enum DriveMode {
+    MANUAL,    // 手动推进
+    AUTO,      // 自动推进
+    ASYNC      // 异步驱动（轮询+回调）
 }
 ```
 
-**阶段推进时序图：**
+#### 迭代流水线默认配置
+
+迭代流水线所有阶段默认配置为 **MANUAL**（手动推进）。
+
+```java
+// 迭代流水线默认配置
+Map<String, StageConfig> iterationDefaults = Map.of(
+    "DEVELOPING", new StageConfig("DEVELOPING", MANUAL, MANUAL, 0),
+    "TESTING", new StageConfig("TESTING", MANUAL, MANUAL, 0),
+    "STAGING", new StageConfig("STAGING", MANUAL, MANUAL, 0),
+    "RELEASE", new StageConfig("RELEASE", MANUAL, MANUAL, 0)
+);
+```
+
+#### 阶段流水线默认配置
+
+```java
+// 阶段流水线默认配置
+Map<String, StageConfig> phaseDefaults = Map.of(
+    "CODE_CHECK", new StageConfig("CODE_CHECK", AUTO, AUTO, 3),
+    "BUILD", new StageConfig("BUILD", AUTO, AUTO, 2),
+    "PACKAGE", new StageConfig("PACKAGE", AUTO, MANUAL, 0),
+    "DEPLOY", new StageConfig("DEPLOY", ASYNC, MANUAL, 0, 30, 1800)
+);
+```
+
+#### 手动推进时序图（MANUAL）
+
+适用于迭代流水线所有阶段，以及阶段流水线中配置为MANUAL的阶段。
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant PS as PipelineService
+    participant SM as StateMachine
+    participant DB as 数据库
+
+    U->>PS: POST /pipelines/{id}/proceed
+    PS->>DB: 查询流水线状态
+    PS->>PS: 校验是否可推进
+    alt 可推进
+        PS->>SM: 触发下一阶段事件
+        SM->>DB: 更新流水线状态
+        PS-->>U: 推进成功
+    else 不可推进
+        PS-->>U: 推进失败
+    end
+```
+
+#### 自动推进时序图（AUTO）
+
+适用于阶段流水线的 CODE_CHECK、BUILD、PACKAGE 阶段。
 
 ```mermaid
 sequenceDiagram
@@ -324,12 +363,11 @@ sequenceDiagram
     SM->>PS: 阶段执行完成(status)
     PS->>SC: 获取阶段配置
     
-    alt 阶段成功
-        alt autoProceed=true
-            PS->>SM: 触发下一阶段事件
-        else autoProceed=false
-            PS->>DB: 更新状态，等待手动触发
-        end
+    alt 阶段成功 && driveMode=AUTO
+        PS->>SM: 触发下一阶段事件
+        SM->>DB: 更新流水线状态
+    else 阶段成功 && driveMode=MANUAL
+        PS->>DB: 更新状态，等待手动触发
     else 阶段失败
         alt retryMode=AUTO && currentRetries < maxRetries
             PS->>SC: currentRetries++
@@ -341,17 +379,9 @@ sequenceDiagram
     end
 ```
 
-#### DEPLOY 阶段异步驱动（轮询+回调）
+#### 异步驱动时序图（ASYNC）
 
-**轮询配置：**
-
-```java
-// DeployPollConfig.java
-public class DeployPollConfig {
-    private int pollInterval = 30;    // 秒
-    private int pollTimeout = 1800;   // 秒（30分钟）
-}
-```
+适用于阶段流水线的 DEPLOY 阶段，采用轮询+回调双保险机制。
 
 **轮询任务时序图：**
 
@@ -804,25 +834,54 @@ sequenceDiagram
 
 **stage_configs JSON 结构示例：**
 
+**迭代流水线默认配置：**
+
+```json
+{
+  "DEVELOPING": {
+    "driveMode": "MANUAL",
+    "retryMode": "MANUAL",
+    "maxRetries": 0
+  },
+  "TESTING": {
+    "driveMode": "MANUAL",
+    "retryMode": "MANUAL",
+    "maxRetries": 0
+  },
+  "STAGING": {
+    "driveMode": "MANUAL",
+    "retryMode": "MANUAL",
+    "maxRetries": 0
+  },
+  "RELEASE": {
+    "driveMode": "MANUAL",
+    "retryMode": "MANUAL",
+    "maxRetries": 0
+  }
+}
+```
+
+**阶段流水线默认配置：**
+
 ```json
 {
   "CODE_CHECK": {
-    "autoProceed": true,
+    "driveMode": "AUTO",
     "retryMode": "AUTO",
     "maxRetries": 3
   },
   "BUILD": {
-    "autoProceed": true,
+    "driveMode": "AUTO",
     "retryMode": "AUTO",
     "maxRetries": 2
   },
   "PACKAGE": {
-    "autoProceed": true,
+    "driveMode": "AUTO",
     "retryMode": "MANUAL",
     "maxRetries": 0
   },
   "DEPLOY": {
-    "autoProceed": false,
+    "driveMode": "ASYNC",
     "retryMode": "MANUAL",
     "maxRetries": 0,
     "pollInterval": 30,

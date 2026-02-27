@@ -119,7 +119,8 @@ flowchart LR
     end
 
     subgraph RELEASE
-        D4 --> E1[CODE_CHECK]
+        D4 --> E0[阶段初始化]
+        E0 --> E1[CODE_CHECK]
         E1 --> E2[BUILD]
         E2 --> E3[PACKAGE]
         E3 --> E4[DEPLOY]
@@ -138,12 +139,47 @@ flowchart LR
     end
 
     subgraph RELEASE
-        A2 --> B1[CODE_CHECK]
+        A2 --> B0[阶段初始化]
+        B0 --> B1[CODE_CHECK]
         B1 --> B2[BUILD]
         B2 --> B3[PACKAGE]
         B3 --> B4[DEPLOY]
         B4 --> B5[RELEASED]
     end
+```
+
+#### RELEASE 阶段初始化逻辑
+
+进入 RELEASE 阶段时，先执行初始化逻辑，再触发阶段流水线。
+
+```mermaid
+flowchart TD
+    A[进入RELEASE阶段] --> B[阶段初始化]
+    B --> C[根据Tag策略生成版本号]
+    C --> D[在Git仓库打Tag]
+    D --> E[存储Tag到阶段流水线元数据]
+    E --> F[触发阶段流水线]
+```
+
+**Tag 策略（一期简化）：**
+
+| 配置项 | 说明 |
+|--------|------|
+| `tagStrategy` | Tag 生成策略，一期固定为 `v{timestamp}` |
+| `tag` | 生成的 Tag 值，存储在 `PipelineStage.context` 中 |
+
+**元数据存储：**
+
+```json
+{
+  "pipelineId": "xxx",
+  "stage": "RELEASE",
+  "context": {
+    "tag": "v20260227143000",
+    "branch": "main",
+    "commitHash": "abc123"
+  }
+}
 ```
 
 #### DEPLOY 阶段内部状态处理

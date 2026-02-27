@@ -34,22 +34,44 @@ status: draft
 
 ### 系统架构图
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    AI Agent 平台                             │
-├─────────────┬─────────────────────┬─────────────────────────┤
-│  应用管理    │     开发管理         │       运维管理          │
-│  (升级)     │     (新增)          │       (接口定义)        │
-├─────────────┼─────────────────────┼─────────────────────────┤
-│ 低代码配置   │ Git仓库对接          │                         │
-│ Pro-code配置│ 迭代/版本管理        │    deploy/create        │
-│             │ 流水线管理           │    deploy/status        │
-│             │                      │    deploy/callback      │
-└─────────────┴─────────────────────┴─────────────────────────┘
-          │              │                      │
-          ▼              ▼                      ▼
-     [元数据存储]   [外部GitLab]           [K8s Operator]
-                   [WebIDE服务-后续]
+```mermaid
+flowchart TB
+    subgraph Platform["AI Agent 平台"]
+        subgraph AppMgr["应用管理 (升级)"]
+            LC[低代码配置]
+            PC[Pro-code配置]
+        end
+        
+        subgraph DevMgr["开发管理 (新增)"]
+            GR[Git仓库对接]
+            IM[迭代/版本管理]
+            PM[流水线管理]
+            ST[脚手架模板]
+        end
+        
+        subgraph OpsMgr["运维管理 (接口定义)"]
+            DC[deploy/create]
+            DS[deploy/status]
+            CB[deploy/callback]
+        end
+    end
+    
+    subgraph External["外部依赖"]
+        GitLab[外部GitLab]
+        K8s[K8s Operator]
+        WebIDE[WebIDE服务-后续]
+    end
+    
+    subgraph Storage["存储层"]
+        MySQL[(元数据存储)]
+    end
+    
+    AppMgr --> MySQL
+    DevMgr --> MySQL
+    DevMgr --> GitLab
+    DevMgr --> WebIDE
+    OpsMgr --> K8s
+    OpsMgr --> MySQL
 ```
 
 ### 技术选型

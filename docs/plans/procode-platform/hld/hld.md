@@ -104,14 +104,14 @@ flowchart LR
         A2 --> B1[功能开发]
     end
 
-    subgraph TESTING
+    subgraph TESTING阶段流水线
         B1 --> C1[CODE_CHECK]
         C1 --> C2[BUILD]
         C2 --> C3[PACKAGE]
         C3 --> C4[DEPLOY]
     end
 
-    subgraph STAGING
+    subgraph STAGING阶段流水线
         C4 --> D1[CODE_CHECK]
         D1 --> D2[BUILD]
         D2 --> D3[PACKAGE]
@@ -120,10 +120,10 @@ flowchart LR
 
     D4 --> E0[RELEASE阶段初始化]
     E0 --> E1[创建阶段流水线]
+    E1 --> F1
 
-    subgraph RELEASE
-        E1 --> F1[CODE_CHECK]
-        F1 --> F2[BUILD]
+    subgraph RELEASE阶段流水线
+        F1[CODE_CHECK] --> F2[BUILD]
         F2 --> F3[PACKAGE]
         F3 --> F4[DEPLOY]
         F4 --> F5[RELEASED]
@@ -142,10 +142,10 @@ flowchart LR
 
     A2 --> B0[RELEASE阶段初始化]
     B0 --> B1[创建阶段流水线]
+    B1 --> C1
 
-    subgraph RELEASE
-        B1 --> C1[CODE_CHECK]
-        C1 --> C2[BUILD]
+    subgraph RELEASE阶段流水线
+        C1[CODE_CHECK] --> C2[BUILD]
         C2 --> C3[PACKAGE]
         C3 --> C4[DEPLOY]
         C4 --> C5[RELEASED]

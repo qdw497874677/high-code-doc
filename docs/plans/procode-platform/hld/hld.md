@@ -208,10 +208,11 @@ flowchart LR
 ```mermaid
 erDiagram
     AgentApp ||--o| ProCodeConfig : "pro-code配置"
-    AgentApp ||--o| GitRepo : "Git仓库"
+    ProCodeConfig ||--o| GitRepo : "Git仓库"
     AgentApp ||--o{ Iteration : "迭代"
     Iteration ||--o{ IterationPhase : "阶段"
-    Iteration ||--o| Pipeline : "流水线"
+    Iteration ||--o| Pipeline : "迭代流水线"
+    Pipeline ||--o{ Pipeline : "阶段流水线"
 ```
 
 ---

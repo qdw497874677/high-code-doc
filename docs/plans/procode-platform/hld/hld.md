@@ -84,6 +84,7 @@ status: draft
 | **阶段流水线** | Phase Pipeline | 管理单个迭代阶段内执行步骤的流水线，隶属于迭代流水线 |
 | **执行步骤** | Execution Step | 阶段流水线内的原子操作：CODE_CHECK（代码检查）→ BUILD_IMAGE（构建镜像）→ DEPLOY（部署） |
 | **代码版本** | Code Version | 面向业务的抽象概念，表示项目代码的一个快照。具体实现使用 Git Tag |
+| **Pipeline Hook** | Pipeline Hook | 流水线执行步骤完成后的回调机制，允许平台内部模块在特定事件发生时被通知 |
 
 ### 3.1 应用创建流程
 
@@ -362,6 +363,80 @@ flowchart TD
 |-------|-------|------|
 | `pollInterval` | 30s | 轮询间隔 |
 | `pollTimeout` | 30min | 超时时间 |
+
+### 3.7 Pipeline Hook 机制
+
+流水线提供 Hook 机制，允许平台内部模块在执行步骤完成后被通知。
+
+#### 触发事件
+
+| 事件 | 触发时机 |
+|------|----------|
+| `CODE_CHECK_COMPLETED` | 代码检查完成 |
+| `BUILD_IMAGE_COMPLETED` | 构建镜像完成 |
+| `DEPLOY_COMPLETED` | 发布部署完成 |
+| `PIPELINE_SUCCEEDED` | 流水线整体成功 |
+| `PIPELINE_FAILED` | 流水线整体失败 |
+
+#### 执行特性
+
+- **异步执行**：流水线不等待回调完成
+- **自动重试**：回调失败后自动重试（最多3次）
+- **失败处理**：记录日志，不影响流水线状态
+- **一期范围**：仅支持平台内部模块通过 Spring Event 注册回调
+
+#### Hook 配置存储
+
+Hook 配置保存在 Pipeline 的 context 中：
+
+```json
+{
+  "pipelineId": "xxx",
+  "stage": "RELEASE",
+  "context": {
+    "codeVersionId": 123,
+    "versionName": "v1.0.0",
+    "hooks": [
+      {
+        "eventType": "DEPLOY_COMPLETED",
+        "listenerBean": "appStatusUpdateListener",
+        "enabled": true
+      }
+    ]
+  }
+}
+```
+
+#### 事件数据结构
+
+```java
+public class PipelineEvent {
+    private Long pipelineId;
+    private String eventType;
+    private String stage;
+    private Boolean success;
+    private Map<String, Object> context;
+    private LocalDateTime occurredAt;
+}
+```
+
+#### 触发流程
+
+```mermaid
+flowchart TD
+    A[执行步骤完成] --> B[发布Spring Event]
+    B --> C[异步执行Listener]
+    C --> D{执行结果}
+    D -->|成功| E[记录日志]
+    D -->|失败| F[重试]
+    F --> G{重试次数}
+    G -->|小于3次| C
+    G -->|大于等于3次| H[记录失败日志]
+```
+
+#### 典型用例
+
+应用管理模块注册 `DEPLOY_COMPLETED` 事件，部署完成后更新应用状态为"已发布"。
 
 ---
 

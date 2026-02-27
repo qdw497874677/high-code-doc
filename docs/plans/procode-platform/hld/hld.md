@@ -153,11 +153,11 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    subgraph 创建迭代
+    subgraph 创建代码版本
         A1[创建迭代] --> A2[选择来源分支]
+        A2 --> B0[创建RELEASE迭代流水线]
     end
 
-    A2 --> B0[创建代码版本]
     B0 --> C1
 
     subgraph RELEASE阶段流水线
@@ -167,6 +167,8 @@ flowchart LR
         C4 --> C5[RELEASED]
     end
 ```
+
+**说明**：创建代码版本是一个业务动作，包含创建迭代（选择来源分支）和创建 RELEASE 迭代流水线。
 
 #### 创建代码版本
 

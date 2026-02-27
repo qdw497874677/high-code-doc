@@ -118,13 +118,15 @@ flowchart LR
         D3 --> D4[DEPLOY]
     end
 
+    D4 --> E0[RELEASE阶段初始化]
+    E0 --> E1[创建阶段流水线]
+
     subgraph RELEASE
-        D4 --> E0[阶段初始化]
-        E0 --> E1[CODE_CHECK]
-        E1 --> E2[BUILD]
-        E2 --> E3[PACKAGE]
-        E3 --> E4[DEPLOY]
-        E4 --> E5[RELEASED]
+        E1 --> F1[CODE_CHECK]
+        F1 --> F2[BUILD]
+        F2 --> F3[PACKAGE]
+        F3 --> F4[DEPLOY]
+        F4 --> F5[RELEASED]
     end
 ```
 
@@ -138,27 +140,30 @@ flowchart LR
         A1[创建迭代] --> A2[选择来源分支]
     end
 
+    A2 --> B0[RELEASE阶段初始化]
+    B0 --> B1[创建阶段流水线]
+
     subgraph RELEASE
-        A2 --> B0[阶段初始化]
-        B0 --> B1[CODE_CHECK]
-        B1 --> B2[BUILD]
-        B2 --> B3[PACKAGE]
-        B3 --> B4[DEPLOY]
-        B4 --> B5[RELEASED]
+        B1 --> C1[CODE_CHECK]
+        C1 --> C2[BUILD]
+        C2 --> C3[PACKAGE]
+        C3 --> C4[DEPLOY]
+        C4 --> C5[RELEASED]
     end
 ```
 
 #### RELEASE 阶段初始化逻辑
 
-进入 RELEASE 阶段时，先执行初始化逻辑，再触发阶段流水线。
+进入 RELEASE 阶段时，**先执行初始化逻辑，再创建阶段流水线**。Tag 等元数据在流水线创建时已准备好。
 
 ```mermaid
 flowchart TD
     A[进入RELEASE阶段] --> B[阶段初始化]
     B --> C[根据Tag策略生成版本号]
     C --> D[在Git仓库打Tag]
-    D --> E[存储Tag到阶段流水线元数据]
-    E --> F[触发阶段流水线]
+    D --> E[创建阶段流水线]
+    E --> F[流水线元数据包含Tag]
+    F --> G[启动流水线执行]
 ```
 
 **Tag 策略（一期简化）：**
@@ -166,7 +171,7 @@ flowchart TD
 | 配置项 | 说明 |
 |--------|------|
 | `tagStrategy` | Tag 生成策略，一期固定为 `v{timestamp}` |
-| `tag` | 生成的 Tag 值，存储在 `PipelineStage.context` 中 |
+| `tag` | 生成的 Tag 值，存储在 `Pipeline.context` 中 |
 
 **元数据存储：**
 

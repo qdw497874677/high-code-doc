@@ -103,7 +103,39 @@ flowchart TD
     I --> J[发布完成]
 ```
 
-### 3.3 流水线执行流程
+### 3.3 流水线架构
+
+**两种流水线类型（复用流水线能力）：**
+
+| 类型 | 说明 | 状态流转 |
+|------|------|----------|
+| **迭代流水线** | 管理迭代阶段流转 | 开发中 → 测试 → 预发 → 发布 |
+| **阶段流水线** | 管理阶段内具体执行 | CODE_CHECK → BUILD → PACKAGE → DEPLOY |
+
+**关系：**
+```
+迭代流水线 (ITERATION)
+  │
+  ├── 阶段流水线 (PHASE, stage=TESTING)
+  ├── 阶段流水线 (PHASE, stage=STAGING)
+  └── 阶段流水线 (PHASE, stage=RELEASE)
+```
+
+**一期简化：**
+- 迭代流水线：只有 RELEASE 一个阶段
+- 进入发布阶段时，自动创建阶段流水线
+
+### 3.4 迭代流水线执行流程
+
+```mermaid
+flowchart LR
+    A[DEVELOPING] --> B[TESTING]
+    B --> C[STAGING]
+    C --> D[RELEASE]
+    D --> E[RELEASED]
+```
+
+### 3.5 阶段流水线执行流程
 
 ```mermaid
 flowchart LR
@@ -111,8 +143,8 @@ flowchart LR
     B --> C[PACKAGE]
     C --> D[DEPLOY]
     D --> E{部署状态}
-    E -->|成功| F[完成]
-    E -->|失败| G[失败]
+    E -->|成功| F[SUCCESS]
+    E -->|失败| G[FAILED]
     E -->|超时| G
 ```
 

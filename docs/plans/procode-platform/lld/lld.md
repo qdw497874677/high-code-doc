@@ -111,16 +111,19 @@ public class Iteration {
     private String currentPhase;
 }
 
-// Pipeline.java
+// Pipeline.java（支持两种类型）
 @Entity
 public class Pipeline {
     private Long id;
-    private Long iterationId;
+    private PipelineType type;          // ITERATION / PHASE
+    private Long parentId;              // 阶段流水线关联迭代流水线ID
+    private Long refId;                 // 迭代流水线关联迭代ID
     private PipelineStatus status;
-    private PipelineStage currentStage;
-    private DeployStatus deployStatus;
-    private String deployId;
-    private String checkpoints;     // JSON
+    private String currentStage;        // 迭代流水线：TESTING/STAGING/RELEASE
+                                        // 阶段流水线：CODE_CHECK/BUILD/PACKAGE/DEPLOY
+    private DeployStatus deployStatus;  // 仅阶段流水线使用
+    private String deployId;            // 仅阶段流水线使用
+    private String checkpoints;         // JSON
 }
 ```
 
@@ -179,6 +182,28 @@ sequenceDiagram
 
 ### 2.3 流水线状态机
 
+**两种流水线类型复用同一套状态机能力：**
+
+#### 迭代流水线状态机
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> DEVELOPING: START
+    DEVELOPING --> TESTING: ENTER_TESTING
+    TESTING --> STAGING: TESTING_SUCCESS
+    STAGING --> RELEASE: STAGING_SUCCESS
+    RELEASE --> RELEASED: RELEASE_SUCCESS
+    RELEASED --> [*]
+    
+    note right of RELEASE
+        进入发布阶段时
+        创建阶段流水线
+    end note
+```
+
+#### 阶段流水线状态机
+
 ```mermaid
 stateDiagram-v2
     [*] --> PENDING
@@ -201,6 +226,20 @@ stateDiagram-v2
         支持轮询/回调
     end note
 ```
+
+#### 流水线类型对比
+
+| 属性 | 迭代流水线 | 阶段流水线 |
+|------|-----------|-----------|
+| type | ITERATION | PHASE |
+| 阶段 | DEVELOPING/TESTING/STAGING/RELEASE | CODE_CHECK/BUILD/PACKAGE/DEPLOY |
+| parentId | null | 迭代流水线ID |
+| refId | 迭代ID | 阶段ID |
+| 部署相关字段 | 不使用 | 使用 |
+
+#### 一期简化
+
+迭代流水线只有 RELEASE 一个阶段，进入时自动创建阶段流水线。
 
 ### 2.4 部署异步交互时序图
 
@@ -369,7 +408,9 @@ sequenceDiagram
   "message": "success",
   "data": {
     "id": 789,
-    "iterationId": 456,
+    "type": "PHASE",
+    "parentId": 888,
+    "refId": 456,
     "status": "RUNNING",
     "currentStage": "DEPLOY",
     "deployStatus": "DEPLOYING",
@@ -535,11 +576,13 @@ sequenceDiagram
 | 字段 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | id | BIGINT | PK, AUTO_INCREMENT | 主键 |
-| iteration_id | BIGINT | NOT NULL | 迭代ID |
+| type | VARCHAR(20) | NOT NULL | 流水线类型(ITERATION/PHASE) |
+| parent_id | BIGINT | | 父流水线ID（阶段流水线关联迭代流水线） |
+| ref_id | BIGINT | NOT NULL | 关联ID（迭代流水线关联迭代ID，阶段流水线关联阶段ID） |
 | status | VARCHAR(20) | NOT NULL, DEFAULT 'PENDING' | 状态 |
-| current_stage | VARCHAR(20) | | 当前阶段 |
-| deploy_status | VARCHAR(20) | | 部署子状态 |
-| deploy_id | VARCHAR(100) | | 部署ID |
+| current_stage | VARCHAR(50) | | 当前阶段 |
+| deploy_status | VARCHAR(20) | | 部署子状态（仅阶段流水线） |
+| deploy_id | VARCHAR(100) | | 部署ID（仅阶段流水线） |
 | checkpoints | TEXT | | 检查点(JSON) |
 | created_at | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | 创建时间 |
 | updated_at | TIMESTAMP | ON UPDATE CURRENT_TIMESTAMP | 更新时间 |
@@ -553,8 +596,10 @@ sequenceDiagram
 | git_repo | uk_app_id | app_id | UNIQUE | 应用ID唯一 |
 | iteration | idx_app_id | app_id | INDEX | 按应用查询迭代 |
 | iteration_phase | idx_iteration_id | iteration_id | INDEX | 按迭代查询阶段 |
-| pipeline | idx_iteration_id | iteration_id | INDEX | 按迭代查询流水线 |
+| pipeline | idx_ref_id | ref_id | INDEX | 按关联ID查询流水线 |
+| pipeline | idx_parent_id | parent_id | INDEX | 查询阶段流水线 |
 | pipeline | idx_status | status | INDEX | 按状态查询 |
+| pipeline | idx_type | type | INDEX | 按类型查询 |
 
 ---
 

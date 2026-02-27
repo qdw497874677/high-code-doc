@@ -82,7 +82,7 @@ status: draft
 | **流水线** | Pipeline | 定义一系列有序执行步骤的状态机，支持持久化和断点续跑 |
 | **迭代流水线** | Iteration Pipeline | 管理迭代阶段流转的流水线，控制迭代从开发到发布的整体流程 |
 | **阶段流水线** | Phase Pipeline | 管理单个迭代阶段内执行步骤的流水线，隶属于迭代流水线 |
-| **执行步骤** | Execution Step | 阶段流水线内的原子操作：CODE_CHECK（代码检查）→ BUILD（构建）→ PACKAGE（打包）→ DEPLOY（部署） |
+| **执行步骤** | Execution Step | 阶段流水线内的原子操作：CODE_CHECK（代码检查）→ BUILD_IMAGE（构建镜像）→ DEPLOY（部署） |
 | **代码版本** | Code Version | 面向业务的抽象概念，表示项目代码的一个快照。具体实现使用 Git Tag |
 
 ### 3.1 应用创建流程
@@ -163,14 +163,15 @@ flowchart LR
     B0 --> C1
 
     subgraph RELEASE阶段流水线
-        C1[CODE_CHECK] --> C2[BUILD]
-        C2 --> C3[PACKAGE]
-        C3 --> C4[DEPLOY]
-        C4 --> C5[RELEASED]
+        C1[CODE_CHECK] --> C2[BUILD_IMAGE]
+        C2 --> C3[DEPLOY]
+        C3 --> C4[RELEASED]
     end
 ```
 
-**说明**：创建代码版本是一个业务动作，包含创建迭代（选择来源分支）和创建 RELEASE 迭代流水线。
+**说明**：
+- 创建代码版本是一个业务动作，包含创建迭代（选择来源分支）和创建 RELEASE 迭代流水线
+- 一期阶段流水线简化为三步：CODE_CHECK（代码检查）→ BUILD_IMAGE（构建镜像）→ DEPLOY（发布部署）
 
 #### 创建代码版本
 
@@ -233,6 +234,7 @@ flowchart TD
 | 迭代阶段 | DEVELOPING → TESTING → STAGING → RELEASE | 直接 RELEASE |
 | 环境数量 | 3个（测试、预发、生产） | 1个（生产） |
 | 阶段流水线次数 | 3次（测试、预发、发布各一次） | 1次 |
+| 执行步骤 | CODE_CHECK → BUILD → PACKAGE → DEPLOY | CODE_CHECK → BUILD_IMAGE → DEPLOY |
 | 适用场景 | 正式生产环境 | 快速迭代 / 内部测试 |
 
 ### 3.3 流水线架构
@@ -242,7 +244,7 @@ flowchart TD
 | 类型 | 说明 | 状态流转 |
 |------|------|----------|
 | **迭代流水线** | 管理迭代阶段流转 | DEVELOPING → TESTING → STAGING → RELEASE → RELEASED |
-| **阶段流水线** | 管理执行步骤流转 | CODE_CHECK → BUILD → PACKAGE → DEPLOY |
+| **阶段流水线** | 管理执行步骤流转 | CODE_CHECK → BUILD_IMAGE → DEPLOY（一期）|
 
 **关系：**
 ```
@@ -271,18 +273,25 @@ flowchart LR
     D --> E[RELEASED]
 ```
 
-### 3.5 阶段流水线执行流程
+### 3.5 阶段流水线执行流程（一期）
 
 ```mermaid
 flowchart LR
-    A[CODE_CHECK] --> B[BUILD]
-    B --> C[PACKAGE]
-    C --> D[DEPLOY]
-    D --> E{部署状态}
-    E -->|成功| F[SUCCESS]
-    E -->|失败| G[FAILED]
-    E -->|超时| G
+    A[CODE_CHECK] --> B[BUILD_IMAGE]
+    B --> C[DEPLOY]
+    C --> D{部署状态}
+    D -->|成功| E[SUCCESS]
+    D -->|失败| F[FAILED]
+    D -->|超时| F
 ```
+
+**执行步骤说明：**
+
+| 步骤 | 说明 |
+|------|------|
+| CODE_CHECK | 代码检查（语法、依赖、安全扫描） |
+| BUILD_IMAGE | 构建镜像：基础镜像 + 启动脚本 + tag信息整合存储 |
+| DEPLOY | 发布部署：将构建产物信息传递给运维模块触发部署 |
 
 ### 3.6 流水线推进驱动机制
 
@@ -317,13 +326,12 @@ flowchart LR
 | STAGING | MANUAL | MANUAL | 0 |
 | RELEASE | MANUAL | MANUAL | 0 |
 
-#### 阶段流水线默认配置
+#### 阶段流水线默认配置（一期）
 
 | 阶段 | driveMode | retryMode | maxRetries | 说明 |
 |------|-----------|-----------|------------|------|
 | CODE_CHECK | AUTO | AUTO | 3 | 自动检查，失败自动重试 |
-| BUILD | AUTO | AUTO | 2 | 自动构建，失败自动重试 |
-| PACKAGE | AUTO | MANUAL | 0 | 自动打包，失败需人工排查 |
+| BUILD_IMAGE | AUTO | AUTO | 2 | 自动构建镜像，失败自动重试 |
 | DEPLOY | ASYNC | MANUAL | 0 | 异步部署，轮询+回调 |
 | | | | | pollInterval=30s, pollTimeout=30min |
 
@@ -465,7 +473,7 @@ erDiagram
 - [x] 应用管理支持 pro-code 模式
 - [x] Git 仓库对接（外部 GitLab）
 - [x] 迭代管理（简化：只有发布阶段）
-- [x] 流水线（CODE_CHECK → BUILD → PACKAGE → DEPLOY）
+- [x] 流水线（CODE_CHECK → BUILD_IMAGE → DEPLOY）
 - [x] 脚手架模板（内置 python）
 
 ### 不包含

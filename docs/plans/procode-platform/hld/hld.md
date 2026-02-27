@@ -83,7 +83,7 @@ status: draft
 | **迭代流水线** | Iteration Pipeline | 管理迭代阶段流转的流水线，控制迭代从开发到发布的整体流程 |
 | **阶段流水线** | Phase Pipeline | 管理单个迭代阶段内执行步骤的流水线，隶属于迭代流水线 |
 | **执行步骤** | Execution Step | 阶段流水线内的原子操作：CODE_CHECK（代码检查）→ BUILD（构建）→ PACKAGE（打包）→ DEPLOY（部署） |
-| **代码版本** | Code Version | 发布时创建的版本快照，包含版本标识、Git Tag、commit 信息 |
+| **代码版本** | Code Version | 面向业务的抽象概念，表示项目代码的一个快照。具体实现使用 Git Tag |
 
 ### 3.1 应用创建流程
 

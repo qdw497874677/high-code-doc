@@ -226,25 +226,6 @@ flowchart TD
 }
 ```
 
-#### DEPLOY 阶段内部状态处理
-
-DEPLOY 阶段采用异步驱动（ASYNC），通过轮询+回调双保险机制获取部署状态。
-
-```mermaid
-flowchart TD
-    A[进入DEPLOY阶段] --> B[调用deploy/create]
-    B --> C[等待异步结果]
-    C --> D{状态获取方式}
-    D -->|轮询| E[定时查询deploy/status]
-    D -->|回调| F[接收deploy/callback]
-    E --> G{部署状态}
-    F --> G
-    G -->|进行中| C
-    G -->|成功| H[DEPLOY SUCCESS]
-    G -->|失败| I[DEPLOY FAILED]
-    G -->|超时| I
-```
-
 #### 完整 vs 简化 对比
 
 | 对比项 | 完整流程 | 简化流程（一期） |
@@ -353,6 +334,21 @@ flowchart LR
 - **轮询**：流水线定时查询运维模块部署状态
 - **回调**：运维模块主动推送部署结果
 - 任一方式收到成功/失败，即可推进状态机
+
+```mermaid
+flowchart TD
+    A[进入DEPLOY阶段] --> B[调用deploy/create]
+    B --> C[等待异步结果]
+    C --> D{状态获取方式}
+    D -->|轮询| E[定时查询deploy/status]
+    D -->|回调| F[接收deploy/callback]
+    E --> G{部署状态}
+    F --> G
+    G -->|进行中| C
+    G -->|成功| H[DEPLOY SUCCESS]
+    G -->|失败| I[DEPLOY FAILED]
+    G -->|超时| I
+```
 
 | 配置项 | 默认值 | 说明 |
 |-------|-------|------|

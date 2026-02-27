@@ -148,6 +148,55 @@ flowchart LR
     E -->|超时| G
 ```
 
+### 3.6 流水线推进驱动机制
+
+**两种流水线，两种驱动策略：**
+
+| 流水线类型 | 驱动方式 | 说明 |
+|-----------|---------|------|
+| **迭代流水线** | 手动触发 | 每个阶段进入需用户确认 |
+| **阶段流水线** | 阶段级可配置 | 每个阶段可独立配置自动/手动 |
+
+#### 迭代流水线驱动
+
+```
+用户点击 → DEVELOPING → 用户点击 → TESTING → 用户点击 → STAGING → 用户点击 → RELEASE
+```
+
+每个阶段进入都需要用户手动触发，确保人对发布流程有完全控制。
+
+#### 阶段流水线驱动
+
+**阶段级别可配置项：**
+
+| 配置项 | 说明 | 示例 |
+|-------|------|------|
+| `autoProceed` | 阶段成功后是否自动进入下一阶段 | true/false |
+| `retryMode` | 失败后的重试方式 | AUTO / MANUAL |
+| `maxRetries` | 自动重试最大次数 | 0-5 |
+
+**默认配置：**
+
+| 阶段 | autoProceed | retryMode | maxRetries |
+|------|-------------|-----------|------------|
+| CODE_CHECK | true | AUTO | 3 |
+| BUILD | true | AUTO | 2 |
+| PACKAGE | true | MANUAL | 0 |
+| DEPLOY | false | MANUAL | 0 |
+
+#### DEPLOY 阶段异步驱动
+
+采用**轮询 + 回调双保险**机制：
+
+- **轮询**：流水线定时查询运维模块部署状态
+- **回调**：运维模块主动推送部署结果
+- 任一方式收到成功/失败，即可推进状态机
+
+| 配置项 | 默认值 | 说明 |
+|-------|-------|------|
+| `pollInterval` | 30s | 轮询间隔 |
+| `pollTimeout` | 30min | 超时时间 |
+
 ---
 
 ## 4. 模块划分
@@ -196,8 +245,11 @@ flowchart LR
 | /iterations | POST | 创建迭代 |
 | /iterations/{id} | GET | 获取迭代详情 |
 | /iterations/{id}/release | POST | 进入发布阶段 |
+| /iterations/{id}/proceed | POST | 推进迭代流水线 |
 | /pipelines | POST | 创建流水线 |
 | /pipelines/{id} | GET | 获取流水线状态 |
+| /pipelines/{id}/proceed | POST | 推进阶段流水线 |
+| /pipelines/{id}/retry | POST | 重试当前阶段 |
 | /pipelines/{id}/resume | POST | 断点续跑 |
 | /pipelines/{id}/cancel | POST | 取消流水线 |
 

@@ -270,6 +270,140 @@ sequenceDiagram
     end
 ```
 
+### 2.5 流水线推进驱动机制
+
+#### 迭代流水线驱动（手动触发）
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant IS as IterationService
+    participant PS as PipelineService
+    participant DB as 数据库
+
+    U->>IS: POST /iterations/{id}/proceed
+    IS->>DB: 查询当前阶段
+    IS->>IS: 校验是否可推进
+    alt 可推进
+        IS->>DB: 更新迭代状态
+        alt 进入发布阶段
+            IS->>PS: 创建阶段流水线
+            PS->>DB: 保存流水线
+            PS->>PS: 启动阶段流水线
+        end
+        IS-->>U: 推进成功
+    else 不可推进
+        IS-->>U: 推进失败（前置条件不满足）
+    end
+```
+
+#### 阶段流水线驱动（阶段级可配置）
+
+**阶段配置数据结构：**
+
+```java
+// StageConfig.java
+public class StageConfig {
+    private String stage;           // CODE_CHECK / BUILD / PACKAGE / DEPLOY
+    private boolean autoProceed;    // 成功后自动进入下一阶段
+    private RetryMode retryMode;    // AUTO / MANUAL
+    private int maxRetries;         // 自动重试最大次数
+    private int currentRetries;     // 当前已重试次数
+}
+```
+
+**阶段推进时序图：**
+
+```mermaid
+sequenceDiagram
+    participant SM as StateMachine
+    participant PS as PipelineService
+    participant SC as StageConfig
+    participant DB as 数据库
+
+    SM->>PS: 阶段执行完成(status)
+    PS->>SC: 获取阶段配置
+    
+    alt 阶段成功
+        alt autoProceed=true
+            PS->>SM: 触发下一阶段事件
+        else autoProceed=false
+            PS->>DB: 更新状态，等待手动触发
+        end
+    else 阶段失败
+        alt retryMode=AUTO && currentRetries < maxRetries
+            PS->>SC: currentRetries++
+            PS->>DB: 更新重试次数
+            PS->>SM: 触发当前阶段重试
+        else retryMode=MANUAL
+            PS->>DB: 更新状态，等待手动重试
+        end
+    end
+```
+
+#### DEPLOY 阶段异步驱动（轮询+回调）
+
+**轮询配置：**
+
+```java
+// DeployPollConfig.java
+public class DeployPollConfig {
+    private int pollInterval = 30;    // 秒
+    private int pollTimeout = 1800;   // 秒（30分钟）
+}
+```
+
+**轮询任务时序图：**
+
+```mermaid
+sequenceDiagram
+    participant S as Scheduler
+    participant PS as PipelineService
+    participant DS as DeployService
+    participant OPS as 运维模块
+    participant DB as 数据库
+
+    loop 每隔pollInterval
+        S->>PS: 检查DEPLOYING状态的流水线
+        PS->>DS: 查询部署状态
+        DS->>OPS: GET /deploy/{id}/status
+        OPS-->>DS: status
+        
+        alt 部署成功
+            DS->>DB: 更新deploy_status=DEPLOY_SUCCESS
+            DS->>PS: 触发状态机事件(SUCCESS)
+        else 部署失败
+            DS->>DB: 更新deploy_status=DEPLOY_FAILED
+            DS->>PS: 触发状态机事件(FAILED)
+        else 超时
+            DS->>DB: 更新deploy_status=DEPLOY_TIMEOUT
+            DS->>PS: 触发状态机事件(FAILED)
+        else 部署中
+            Note over DS: 继续等待
+        end
+    end
+```
+
+**回调接口时序图：**
+
+```mermaid
+sequenceDiagram
+    participant OPS as 运维模块
+    participant DS as DeployService
+    participant PS as PipelineService
+    participant DB as 数据库
+
+    OPS->>DS: POST /deploy/callback
+    DS->>DB: 查询deploy_id
+    alt 存在
+        DS->>DB: 更新deploy_status
+        DS->>PS: 触发状态机事件
+        DS-->>OPS: 200 OK
+    else 不存在
+        DS-->>OPS: 404 Not Found
+    end
+```
+
 ---
 
 ## 3. 接口定义
@@ -456,7 +590,86 @@ sequenceDiagram
 }
 ```
 
-### 3.7 运维模块接口（定义，实现留白）
+### 3.7 迭代流水线推进
+
+- **路径**：`POST /iterations/{id}/proceed`
+- **描述**：手动推进迭代流水线到下一阶段
+
+**请求参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| targetPhase | String | 是 | 目标阶段: TESTING/STAGING/RELEASE |
+
+**响应格式**：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "iterationId": 456,
+    "currentPhase": "RELEASE",
+    "phasePipelineId": 789
+  }
+}
+```
+
+**错误码**：
+
+| 错误码 | 说明 |
+|--------|------|
+| 2001 | 当前阶段不可推进 |
+| 2002 | 目标阶段无效 |
+| 2003 | 前置条件不满足 |
+
+### 3.8 阶段流水线重试
+
+- **路径**：`POST /pipelines/{id}/retry`
+- **描述**：手动重试当前失败阶段
+
+**响应格式**：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "pipelineId": 789,
+    "currentStage": "BUILD",
+    "retryCount": 2,
+    "maxRetries": 3
+  }
+}
+```
+
+**错误码**：
+
+| 错误码 | 说明 |
+|--------|------|
+| 3001 | 流水线状态不允许重试 |
+| 3002 | 已达到最大重试次数 |
+
+### 3.9 阶段流水线推进
+
+- **路径**：`POST /pipelines/{id}/proceed`
+- **描述**：手动推进阶段流水线到下一阶段（当autoProceed=false时使用）
+
+**响应格式**：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "pipelineId": 789,
+    "previousStage": "PACKAGE",
+    "currentStage": "DEPLOY"
+  }
+}
+```
+
+### 3.10 运维模块接口（定义，实现留白）
 
 **创建部署**：`POST /deploy/create`
 
@@ -581,11 +794,42 @@ sequenceDiagram
 | ref_id | BIGINT | NOT NULL | 关联ID（迭代流水线关联迭代ID，阶段流水线关联阶段ID） |
 | status | VARCHAR(20) | NOT NULL, DEFAULT 'PENDING' | 状态 |
 | current_stage | VARCHAR(50) | | 当前阶段 |
+| stage_configs | TEXT | | 阶段配置(JSON)，仅阶段流水线 |
+| current_retries | INT | DEFAULT 0 | 当前阶段重试次数，仅阶段流水线 |
 | deploy_status | VARCHAR(20) | | 部署子状态（仅阶段流水线） |
 | deploy_id | VARCHAR(100) | | 部署ID（仅阶段流水线） |
 | checkpoints | TEXT | | 检查点(JSON) |
 | created_at | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | 创建时间 |
 | updated_at | TIMESTAMP | ON UPDATE CURRENT_TIMESTAMP | 更新时间 |
+
+**stage_configs JSON 结构示例：**
+
+```json
+{
+  "CODE_CHECK": {
+    "autoProceed": true,
+    "retryMode": "AUTO",
+    "maxRetries": 3
+  },
+  "BUILD": {
+    "autoProceed": true,
+    "retryMode": "AUTO",
+    "maxRetries": 2
+  },
+  "PACKAGE": {
+    "autoProceed": true,
+    "retryMode": "MANUAL",
+    "maxRetries": 0
+  },
+  "DEPLOY": {
+    "autoProceed": false,
+    "retryMode": "MANUAL",
+    "maxRetries": 0,
+    "pollInterval": 30,
+    "pollTimeout": 1800
+  }
+}
+```
 
 ### 4.2 索引设计
 

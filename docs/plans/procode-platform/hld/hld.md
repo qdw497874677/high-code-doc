@@ -43,10 +43,10 @@ flowchart TB
         end
         
         subgraph DevMgr["开发管理 (新增)"]
-            GR[Git仓库对接]
+            CRM[代码仓库管理]
             IM[迭代/版本管理]
             PM[流水线管理]
-            ST[脚手架模板]
+            WI[WebIDE-后续]
         end
         
         subgraph OpsMgr["运维管理 (接口定义)"]
@@ -59,7 +59,6 @@ flowchart TB
     subgraph External["外部依赖"]
         GitLab[外部GitLab]
         K8s[K8s Operator]
-        WebIDE[WebIDE服务-后续]
     end
     
     subgraph Storage["存储层"]
@@ -69,7 +68,6 @@ flowchart TB
     AppMgr --> MySQL
     DevMgr --> MySQL
     DevMgr --> GitLab
-    DevMgr --> WebIDE
     OpsMgr --> K8s
     OpsMgr --> MySQL
 ```

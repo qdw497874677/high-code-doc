@@ -10,6 +10,19 @@ status: draft
 
 # Pro-code 高代码开发模式详细设计
 
+## 术语表
+
+| 术语 | 英文 | 说明 |
+|------|------|------|
+| **迭代** | Iteration | 一次完整的开发周期，从功能开发到发布上线 |
+| **迭代阶段** | Iteration Phase | 迭代的生命周期阶段：DEVELOPING → TESTING → STAGING → RELEASE |
+| **流水线** | Pipeline | 定义一系列有序执行步骤的状态机，支持持久化和断点续跑 |
+| **迭代流水线** | Iteration Pipeline | 管理迭代阶段流转的流水线 |
+| **阶段流水线** | Phase Pipeline | 管理单个迭代阶段内执行步骤的流水线，隶属于迭代流水线 |
+| **执行步骤** | Execution Step | 阶段流水线内的原子操作：CODE_CHECK → BUILD_IMAGE → DEPLOY |
+| **代码版本** | Code Version | 面向业务的抽象概念，表示项目代码的一个快照，具体实现使用 Git Tag |
+| **Pipeline Hook** | Pipeline Hook | 流水线执行步骤完成后的回调机制 |
+
 ## 1. 模块设计
 
 ### 1.1 模块划分
@@ -34,19 +47,24 @@ com.example.platform
 │   │   ├── IterationController.java
 │   │   └── PipelineController.java
 │   ├── service
-│   │   ├── GitService.java
+│   │   ├── CodeRepoService.java
 │   │   ├── IterationService.java
 │   │   └── PipelineService.java
 │   ├── entity
 │   │   ├── GitRepo.java
 │   │   ├── Iteration.java
 │   │   ├── IterationPhase.java
+│   │   ├── CodeVersion.java
 │   │   └── Pipeline.java
 │   ├── statemachine
 │   │   ├── PipelineStateMachine.java
 │   │   ├── PipelineState.java
 │   │   ├── PipelineEvent.java
 │   │   └── PipelineAction.java
+│   ├── hook
+│   │   ├── PipelineHookConfig.java
+│   │   ├── PipelineHookEvent.java
+│   │   └── PipelineHookListener.java
 │   └── integration
 │       ├── GitLabClient.java
 │       └── WebIdeClient.java
@@ -111,6 +129,17 @@ public class Iteration {
     private String currentPhase;
 }
 
+// CodeVersion.java
+@Entity
+public class CodeVersion {
+    private Long id;
+    private Long iterationId;
+    private String versionName;     // 用户指定的版本标识
+    private String description;     // 版本描述
+    private String tag;             // Git 仓库中的实际 Tag
+    private String commitHash;      // Tag 指向的 commit
+}
+
 // Pipeline.java（支持两种类型）
 @Entity
 public class Pipeline {
@@ -120,9 +149,10 @@ public class Pipeline {
     private Long refId;                 // 迭代流水线关联迭代ID
     private PipelineStatus status;
     private String currentStage;        // 迭代流水线：TESTING/STAGING/RELEASE
-                                        // 阶段流水线：CODE_CHECK/BUILD/PACKAGE/DEPLOY
+                                        // 阶段流水线：CODE_CHECK/BUILD_IMAGE/DEPLOY
     private DeployStatus deployStatus;  // 仅阶段流水线使用
     private String deployId;            // 仅阶段流水线使用
+    private String context;             // JSON，包含codeVersionId、hooks等
     private String checkpoints;         // JSON
 }
 ```
@@ -209,12 +239,10 @@ stateDiagram-v2
     [*] --> PENDING
     PENDING --> RUNNING: START
     RUNNING --> CODE_CHECK: ENTER_CODE_CHECK
-    CODE_CHECK --> BUILD: CODE_CHECK_SUCCESS
+    CODE_CHECK --> BUILD_IMAGE: CODE_CHECK_SUCCESS
     CODE_CHECK --> FAILED: CODE_CHECK_FAILED
-    BUILD --> PACKAGE: BUILD_SUCCESS
-    BUILD --> FAILED: BUILD_FAILED
-    PACKAGE --> DEPLOY: PACKAGE_SUCCESS
-    PACKAGE --> FAILED: PACKAGE_FAILED
+    BUILD_IMAGE --> DEPLOY: BUILD_IMAGE_SUCCESS
+    BUILD_IMAGE --> FAILED: BUILD_IMAGE_FAILED
     DEPLOY --> DEPLOYING: DEPLOY_START
     DEPLOYING --> SUCCESS: DEPLOY_SUCCESS
     DEPLOYING --> FAILED: DEPLOY_FAILED
@@ -232,7 +260,7 @@ stateDiagram-v2
 | 属性 | 迭代流水线 | 阶段流水线 |
 |------|-----------|-----------|
 | type | ITERATION | PHASE |
-| 阶段 | DEVELOPING/TESTING/STAGING/RELEASE | CODE_CHECK/BUILD/PACKAGE/DEPLOY |
+| 阶段 | DEVELOPING/TESTING/STAGING/RELEASE | CODE_CHECK/BUILD_IMAGE/DEPLOY |
 | parentId | null | 迭代流水线ID |
 | refId | 迭代ID | 阶段ID |
 | 部署相关字段 | 不使用 | 使用 |
@@ -317,14 +345,21 @@ Map<String, StageConfig> iterationDefaults = Map.of(
 #### 阶段流水线默认配置
 
 ```java
-// 阶段流水线默认配置
+// 阶段流水线默认配置（一期）
 Map<String, StageConfig> phaseDefaults = Map.of(
     "CODE_CHECK", new StageConfig("CODE_CHECK", AUTO, AUTO, 3),
-    "BUILD", new StageConfig("BUILD", AUTO, AUTO, 2),
-    "PACKAGE", new StageConfig("PACKAGE", AUTO, MANUAL, 0),
+    "BUILD_IMAGE", new StageConfig("BUILD_IMAGE", AUTO, AUTO, 2),
     "DEPLOY", new StageConfig("DEPLOY", ASYNC, MANUAL, 0, 30, 1800)
 );
 ```
+
+**执行步骤说明：**
+
+| 步骤 | 说明 |
+|------|------|
+| CODE_CHECK | 代码检查（语法、依赖、安全扫描） |
+| BUILD_IMAGE | 构建镜像：基础镜像 + 启动脚本 + tag信息整合存储 |
+| DEPLOY | 发布部署：将构建产物信息传递给运维模块触发部署 |
 
 #### 手动推进时序图（MANUAL）
 
@@ -351,7 +386,7 @@ sequenceDiagram
 
 #### 自动推进时序图（AUTO）
 
-适用于阶段流水线的 CODE_CHECK、BUILD、PACKAGE 阶段。
+适用于阶段流水线的 CODE_CHECK、BUILD_IMAGE 阶段。
 
 ```mermaid
 sequenceDiagram
@@ -432,6 +467,67 @@ sequenceDiagram
     else 不存在
         DS-->>OPS: 404 Not Found
     end
+```
+
+### 2.6 Pipeline Hook 机制
+
+流水线提供 Hook 机制，允许平台内部模块在执行步骤完成后被通知。
+
+#### 触发事件
+
+| 事件 | 触发时机 |
+|------|----------|
+| CODE_CHECK_COMPLETED | 代码检查完成 |
+| BUILD_IMAGE_COMPLETED | 构建镜像完成 |
+| DEPLOY_COMPLETED | 发布部署完成 |
+| PIPELINE_SUCCEEDED | 流水线整体成功 |
+| PIPELINE_FAILED | 流水线整体失败 |
+
+#### 事件数据结构
+
+```java
+public class PipelineHookEvent {
+    private Long pipelineId;
+    private String eventType;
+    private String stage;
+    private Boolean success;
+    private Map<String, Object> context;
+    private LocalDateTime occurredAt;
+}
+```
+
+#### Hook 触发流程
+
+```mermaid
+flowchart TD
+    A[执行步骤完成] --> B[发布Spring Event]
+    B --> C[异步执行Listener]
+    C --> D{执行结果}
+    D -->|成功| E[记录日志]
+    D -->|失败| F[重试]
+    F --> G{重试次数}
+    G -->|小于3次| C
+    G -->|大于等于3次| H[记录失败日志]
+```
+
+#### 典型用例
+
+应用管理模块注册 `DEPLOY_COMPLETED` 事件，部署完成后更新应用状态为"已发布"。
+
+```java
+@Component("appStatusUpdateListener")
+public class AppStatusUpdateListener {
+    
+    @EventListener
+    @Async
+    public void onDeployCompleted(PipelineHookEvent event) {
+        if ("DEPLOY_COMPLETED".equals(event.getEventType()) 
+            && Boolean.TRUE.equals(event.getSuccess())) {
+            // 更新应用状态为"已发布"
+            appService.updateStatus(event.getContext());
+        }
+    }
+}
 ```
 
 ---
@@ -536,13 +632,14 @@ sequenceDiagram
 ### 3.4 进入发布阶段
 
 - **路径**：`POST /iterations/{id}/release`
-- **描述**：进入发布阶段，打tag并触发流水线
+- **描述**：进入发布阶段，创建代码版本并触发流水线
 
 **请求参数**：
 
 | 参数 | 类型 | 必填 | 校验规则 | 说明 |
 |------|------|------|----------|------|
-| tag | String | 是 | v开头的版本号 | 发布版本tag |
+| versionName | String | 否 | - | 版本标识，默认 v{timestamp} |
+| description | String | 否 | - | 版本描述 |
 
 **响应格式**：
 
@@ -552,8 +649,10 @@ sequenceDiagram
   "message": "success",
   "data": {
     "iterationId": 456,
+    "codeVersionId": 789,
+    "versionName": "v1.0.0",
     "tag": "v1.0.0",
-    "pipelineId": 789,
+    "pipelineId": 888,
     "status": "RUNNING"
   }
 }
@@ -578,6 +677,20 @@ sequenceDiagram
     "status": "RUNNING",
     "currentStage": "DEPLOY",
     "deployStatus": "DEPLOYING",
+    "context": {
+      "codeVersionId": 123,
+      "versionName": "v1.0.0",
+      "tag": "v1.0.0",
+      "branch": "main",
+      "commitHash": "abc123",
+      "hooks": [
+        {
+          "eventType": "DEPLOY_COMPLETED",
+          "listenerBean": "appStatusUpdateListener",
+          "enabled": true
+        }
+      ]
+    },
     "checkpoints": [
       {
         "stage": "CODE_CHECK",
@@ -585,12 +698,7 @@ sequenceDiagram
         "output": {"commitId": "abc123"}
       },
       {
-        "stage": "BUILD",
-        "status": "SUCCESS",
-        "output": {"dockerfile": "..."}
-      },
-      {
-        "stage": "PACKAGE",
+        "stage": "BUILD_IMAGE",
         "status": "SUCCESS",
         "output": {"image": "registry/xxx:v1.0.0"}
       }
@@ -666,7 +774,7 @@ sequenceDiagram
   "message": "success",
   "data": {
     "pipelineId": 789,
-    "currentStage": "BUILD",
+    "currentStage": "BUILD_IMAGE",
     "retryCount": 2,
     "maxRetries": 3
   }
@@ -693,7 +801,7 @@ sequenceDiagram
   "message": "success",
   "data": {
     "pipelineId": 789,
-    "previousStage": "PACKAGE",
+    "previousStage": "BUILD_IMAGE",
     "currentStage": "DEPLOY"
   }
 }
@@ -810,8 +918,19 @@ sequenceDiagram
 | iteration_id | BIGINT | NOT NULL | 迭代ID |
 | phase_type | VARCHAR(20) | NOT NULL | 阶段类型(RELEASE) |
 | branch | VARCHAR(100) | | 关联分支 |
-| tag | VARCHAR(100) | | 版本tag |
 | status | VARCHAR(20) | DEFAULT 'PENDING' | 状态 |
+| created_at | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | 创建时间 |
+
+**code_version（代码版本表）**
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | BIGINT | PK, AUTO_INCREMENT | 主键 |
+| iteration_id | BIGINT | NOT NULL, UNIQUE | 迭代ID（一对一） |
+| version_name | VARCHAR(64) | NOT NULL | 用户指定的版本标识 |
+| description | TEXT | | 版本描述 |
+| tag | VARCHAR(128) | NOT NULL | Git 仓库中的实际 Tag |
+| commit_hash | VARCHAR(40) | | Tag 指向的 commit |
 | created_at | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | 创建时间 |
 
 **pipeline（流水线表）**
@@ -825,6 +944,7 @@ sequenceDiagram
 | status | VARCHAR(20) | NOT NULL, DEFAULT 'PENDING' | 状态 |
 | current_stage | VARCHAR(50) | | 当前阶段 |
 | stage_configs | TEXT | | 阶段配置(JSON)，仅阶段流水线 |
+| context | TEXT | | 上下文(JSON)，包含codeVersionId、hooks等 |
 | current_retries | INT | DEFAULT 0 | 当前阶段重试次数，仅阶段流水线 |
 | deploy_status | VARCHAR(20) | | 部署子状态（仅阶段流水线） |
 | deploy_id | VARCHAR(100) | | 部署ID（仅阶段流水线） |
@@ -832,36 +952,7 @@ sequenceDiagram
 | created_at | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | 创建时间 |
 | updated_at | TIMESTAMP | ON UPDATE CURRENT_TIMESTAMP | 更新时间 |
 
-**stage_configs JSON 结构示例：**
-
-**迭代流水线默认配置：**
-
-```json
-{
-  "DEVELOPING": {
-    "driveMode": "MANUAL",
-    "retryMode": "MANUAL",
-    "maxRetries": 0
-  },
-  "TESTING": {
-    "driveMode": "MANUAL",
-    "retryMode": "MANUAL",
-    "maxRetries": 0
-  },
-  "STAGING": {
-    "driveMode": "MANUAL",
-    "retryMode": "MANUAL",
-    "maxRetries": 0
-  },
-  "RELEASE": {
-    "driveMode": "MANUAL",
-    "retryMode": "MANUAL",
-    "maxRetries": 0
-  }
-}
-```
-
-**阶段流水线默认配置：**
+**stage_configs JSON 结构示例（一期阶段流水线）：**
 
 ```json
 {
@@ -870,15 +961,10 @@ sequenceDiagram
     "retryMode": "AUTO",
     "maxRetries": 3
   },
-  "BUILD": {
+  "BUILD_IMAGE": {
     "driveMode": "AUTO",
     "retryMode": "AUTO",
     "maxRetries": 2
-  },
-  "PACKAGE": {
-    "driveMode": "AUTO",
-    "retryMode": "MANUAL",
-    "maxRetries": 0
   },
   "DEPLOY": {
     "driveMode": "ASYNC",
@@ -887,6 +973,26 @@ sequenceDiagram
     "pollInterval": 30,
     "pollTimeout": 1800
   }
+}
+```
+
+**context JSON 结构示例：**
+
+```json
+{
+  "codeVersionId": 123,
+  "versionName": "v1.0.0",
+  "description": "首次发布",
+  "tag": "v1.0.0",
+  "branch": "main",
+  "commitHash": "abc123",
+  "hooks": [
+    {
+      "eventType": "DEPLOY_COMPLETED",
+      "listenerBean": "appStatusUpdateListener",
+      "enabled": true
+    }
+  ]
 }
 ```
 
@@ -899,6 +1005,7 @@ sequenceDiagram
 | git_repo | uk_app_id | app_id | UNIQUE | 应用ID唯一 |
 | iteration | idx_app_id | app_id | INDEX | 按应用查询迭代 |
 | iteration_phase | idx_iteration_id | iteration_id | INDEX | 按迭代查询阶段 |
+| code_version | uk_iteration_id | iteration_id | UNIQUE | 迭代ID唯一 |
 | pipeline | idx_ref_id | ref_id | INDEX | 按关联ID查询流水线 |
 | pipeline | idx_parent_id | parent_id | INDEX | 查询阶段流水线 |
 | pipeline | idx_status | status | INDEX | 按状态查询 |

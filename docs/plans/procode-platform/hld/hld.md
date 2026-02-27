@@ -154,7 +154,9 @@ flowchart LR
 ```mermaid
 flowchart LR
     subgraph 创建代码版本
-        A1[创建迭代] --> A2[选择来源分支]
+        subgraph 创建迭代
+            A1[创建迭代] --> A2[选择来源分支]
+        end
         A2 --> B0[创建RELEASE迭代流水线]
     end
 

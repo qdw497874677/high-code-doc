@@ -186,8 +186,8 @@ flowchart TD
     E --> F
     F --> G[在Git仓库打Tag]
     G --> H[创建CodeVersion记录]
-    H --> I[创建阶段流水线]
-    I --> J[版本信息写入Pipeline.context]
+    H --> I[版本信息写入Pipeline.context]
+    I --> J[创建阶段流水线]
     J --> K[启动流水线执行]
 ```
 

@@ -92,51 +92,39 @@ flowchart TD
 
 #### 完整流程
 
-迭代从创建到发布经历多个阶段，每个阶段可触发阶段流水线执行代码检查、构建、打包、部署。
+迭代从创建到发布经历多个阶段，每个阶段触发阶段流水线执行。
 
 ```mermaid
 flowchart LR
-    subgraph 创建
+    subgraph 创建迭代
         A1[创建迭代] --> A2[选择来源分支]
     end
 
-    subgraph 开发阶段
-        A2 --> B1[DEVELOPING]
-        B1 --> B2[功能开发/代码提交]
+    subgraph DEVELOPING
+        A2 --> B1[功能开发]
     end
 
-    subgraph 测试阶段
-        B2 --> C1[TESTING]
-        C1 --> C2[触发阶段流水线]
-        C2 --> C3[部署到测试环境]
-        C3 --> C4[测试验证]
+    subgraph TESTING
+        B1 --> C1[CODE_CHECK]
+        C1 --> C2[BUILD]
+        C2 --> C3[PACKAGE]
+        C3 --> C4[DEPLOY]
     end
 
-    subgraph 预发阶段
-        C4 --> D1[STAGING]
-        D1 --> D2[触发阶段流水线]
-        D2 --> D3[部署到预发环境]
-        D3 --> D4[预发验证]
+    subgraph STAGING
+        C4 --> D1[CODE_CHECK]
+        D1 --> D2[BUILD]
+        D2 --> D3[PACKAGE]
+        D3 --> D4[DEPLOY]
     end
 
-    subgraph 发布阶段
-        D4 --> E1[RELEASE]
-        E1 --> E2[打Tag]
-        E2 --> E3[触发阶段流水线]
-        E3 --> E4[部署到生产环境]
+    subgraph RELEASE
+        D4 --> E1[CODE_CHECK]
+        E1 --> E2[BUILD]
+        E2 --> E3[PACKAGE]
+        E3 --> E4[DEPLOY]
         E4 --> E5[RELEASED]
     end
-```
-
-**阶段流水线内部执行（每个阶段触发时）：**
-
-```mermaid
-flowchart LR
-    A[触发] --> B[CODE_CHECK]
-    B --> C[BUILD]
-    C --> D[PACKAGE]
-    D --> E[DEPLOY]
-    E --> F[完成]
 ```
 
 #### 简化流程（一期实现）
@@ -145,20 +133,36 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    subgraph 创建
+    subgraph 创建迭代
         A1[创建迭代] --> A2[选择来源分支]
     end
 
-    subgraph 发布阶段
-        A2 --> B1[RELEASE]
-        B1 --> B2[打Tag]
-        B2 --> B3[触发阶段流水线]
-        B3 --> B4[CODE_CHECK]
-        B4 --> B5[BUILD]
-        B5 --> B6[PACKAGE]
-        B6 --> B7[DEPLOY]
-        B7 --> B8[RELEASED]
+    subgraph RELEASE
+        A2 --> B1[CODE_CHECK]
+        B1 --> B2[BUILD]
+        B2 --> B3[PACKAGE]
+        B3 --> B4[DEPLOY]
+        B4 --> B5[RELEASED]
     end
+```
+
+#### DEPLOY 阶段内部状态处理
+
+DEPLOY 阶段采用异步驱动（ASYNC），通过轮询+回调双保险机制获取部署状态。
+
+```mermaid
+flowchart TD
+    A[进入DEPLOY阶段] --> B[调用deploy/create]
+    B --> C[等待异步结果]
+    C --> D{状态获取方式}
+    D -->|轮询| E[定时查询deploy/status]
+    D -->|回调| F[接收deploy/callback]
+    E --> G{部署状态}
+    F --> G
+    G -->|进行中| C
+    G -->|成功| H[DEPLOY SUCCESS]
+    G -->|失败| I[DEPLOY FAILED]
+    G -->|超时| I
 ```
 
 #### 完整 vs 简化 对比

@@ -92,7 +92,7 @@ flowchart TD
 
 #### 完整流程
 
-迭代从创建到发布经历多个阶段，每个阶段触发阶段流水线执行。
+迭代从创建到发布经历多个阶段，每个阶段先创建流水线（含初始化），再执行流水线。
 
 ```mermaid
 flowchart LR
@@ -104,29 +104,32 @@ flowchart LR
         A2 --> B1[功能开发]
     end
 
+    B1 --> C0[创建阶段流水线]
+    C0 --> C1
+
     subgraph TESTING阶段流水线
-        B1 --> C1[CODE_CHECK]
-        C1 --> C2[BUILD]
+        C1[CODE_CHECK] --> C2[BUILD]
         C2 --> C3[PACKAGE]
         C3 --> C4[DEPLOY]
     end
 
+    C4 --> D0[创建阶段流水线]
+    D0 --> D1
+
     subgraph STAGING阶段流水线
-        C4 --> D1[CODE_CHECK]
-        D1 --> D2[BUILD]
+        D1[CODE_CHECK] --> D2[BUILD]
         D2 --> D3[PACKAGE]
         D3 --> D4[DEPLOY]
     end
 
-    D4 --> E0[RELEASE阶段初始化]
-    E0 --> E1[创建阶段流水线]
-    E1 --> F1
+    D4 --> E0[创建阶段流水线<br/>含打Tag]
+    E0 --> E1
 
     subgraph RELEASE阶段流水线
-        F1[CODE_CHECK] --> F2[BUILD]
-        F2 --> F3[PACKAGE]
-        F3 --> F4[DEPLOY]
-        F4 --> F5[RELEASED]
+        E1[CODE_CHECK] --> E2[BUILD]
+        E2 --> E3[PACKAGE]
+        E3 --> E4[DEPLOY]
+        E4 --> E5[RELEASED]
     end
 ```
 
@@ -140,9 +143,8 @@ flowchart LR
         A1[创建迭代] --> A2[选择来源分支]
     end
 
-    A2 --> B0[RELEASE阶段初始化]
-    B0 --> B1[创建阶段流水线]
-    B1 --> C1
+    A2 --> B0[创建阶段流水线<br/>含打Tag]
+    B0 --> C1
 
     subgraph RELEASE阶段流水线
         C1[CODE_CHECK] --> C2[BUILD]
@@ -152,18 +154,17 @@ flowchart LR
     end
 ```
 
-#### RELEASE 阶段初始化逻辑
+#### 创建 RELEASE 阶段流水线
 
-进入 RELEASE 阶段时，**先执行初始化逻辑，再创建阶段流水线**。Tag 等元数据在流水线创建时已准备好。
+进入 RELEASE 阶段时，**创建阶段流水线**包含初始化逻辑（打Tag），流水线创建后元数据已准备好。
 
 ```mermaid
 flowchart TD
-    A[进入RELEASE阶段] --> B[阶段初始化]
+    A[进入RELEASE阶段] --> B[创建阶段流水线]
     B --> C[根据Tag策略生成版本号]
     C --> D[在Git仓库打Tag]
-    D --> E[创建阶段流水线]
-    E --> F[流水线元数据包含Tag]
-    F --> G[启动流水线执行]
+    D --> E[写入流水线元数据]
+    E --> F[启动流水线执行]
 ```
 
 **Tag 策略（一期简化）：**

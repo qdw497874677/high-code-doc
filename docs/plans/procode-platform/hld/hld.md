@@ -122,7 +122,7 @@ flowchart LR
         D3 --> D4[DEPLOY]
     end
 
-    D4 --> E0[创建阶段流水线<br/>含打Tag]
+    D4 --> E0[创建代码版本]
     E0 --> E1
 
     subgraph RELEASE阶段流水线
@@ -143,7 +143,7 @@ flowchart LR
         A1[创建迭代] --> A2[选择来源分支]
     end
 
-    A2 --> B0[创建阶段流水线<br/>含打Tag]
+    A2 --> B0[创建代码版本]
     B0 --> C1
 
     subgraph RELEASE阶段流水线
@@ -154,25 +154,42 @@ flowchart LR
     end
 ```
 
-#### 创建 RELEASE 阶段流水线
+#### 创建代码版本
 
-进入 RELEASE 阶段时，**创建阶段流水线**包含初始化逻辑（打Tag），流水线创建后元数据已准备好。
+进入 RELEASE 阶段时，先创建代码版本（含打 Tag），再创建阶段流水线。
 
 ```mermaid
 flowchart TD
-    A[进入RELEASE阶段] --> B[创建阶段流水线]
-    B --> C[根据Tag策略生成版本号]
-    C --> D[在Git仓库打Tag]
-    D --> E[写入流水线元数据]
-    E --> F[启动流水线执行]
+    A[进入RELEASE阶段] --> B[用户填写版本信息]
+    B --> C{version_name 为空?}
+    C -->|是| D[生成默认值 v{timestamp}]
+    C -->|否| E[使用用户输入]
+    D --> F[生成完整Tag]
+    E --> F
+    F --> G[在Git仓库打Tag]
+    G --> H[创建CodeVersion记录]
+    H --> I[创建阶段流水线]
+    I --> J[版本信息写入Pipeline.context]
+    J --> K[启动流水线执行]
 ```
 
-**Tag 策略（一期简化）：**
+**代码版本数据结构：**
 
-| 配置项 | 说明 |
-|--------|------|
-| `tagStrategy` | Tag 生成策略，一期固定为 `v{timestamp}` |
-| `tag` | 生成的 Tag 值，存储在 `Pipeline.context` 中 |
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | bigint | 主键 |
+| `iteration_id` | bigint | 关联迭代（一对一） |
+| `version_name` | varchar(64) | 用户指定的版本标识 |
+| `description` | text | 版本描述 |
+| `tag` | varchar(128) | Git 仓库中的实际 Tag |
+| `commit_hash` | varchar(40) | Tag 指向的 commit |
+
+**用户交互：**
+
+| 字段 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `version_name` | 否 | `v{timestamp}` | 用户可自定义版本标识 |
+| `description` | 否 | 空 | 版本描述 |
 
 **元数据存储：**
 
@@ -181,7 +198,10 @@ flowchart TD
   "pipelineId": "xxx",
   "stage": "RELEASE",
   "context": {
-    "tag": "v20260227143000",
+    "codeVersionId": 123,
+    "versionName": "v1.0.0",
+    "description": "首次发布",
+    "tag": "v1.0.0",
     "branch": "main",
     "commitHash": "abc123"
   }
@@ -382,6 +402,7 @@ erDiagram
     AgentApp ||--o| ProCodeConfig : "pro-code配置"
     ProCodeConfig ||--o| GitRepo : "Git仓库"
     AgentApp ||--o{ Iteration : "迭代"
+    Iteration ||--o| CodeVersion : "代码版本"
     Iteration ||--o{ IterationPhase : "阶段"
     Iteration ||--o| Pipeline : "迭代流水线"
     Pipeline ||--o{ Pipeline : "阶段流水线"

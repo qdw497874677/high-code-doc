@@ -73,14 +73,17 @@ status: draft
 
 ## 3. 核心流程
 
-### 术语定义
+### 术语表
 
-| 术语 | 说明 |
-|------|------|
-| **迭代阶段** | 迭代流水线的阶段：DEVELOPING、TESTING、STAGING、RELEASE |
-| **执行步骤** | 阶段流水线的步骤：CODE_CHECK、BUILD、PACKAGE、DEPLOY |
-| **迭代流水线** | 管理迭代阶段流转的状态机 |
-| **阶段流水线** | 管理执行步骤流转的状态机，隶属于迭代流水线 |
+| 术语 | 英文 | 说明 |
+|------|------|------|
+| **迭代** | Iteration | 一次完整的开发周期，从功能开发到发布上线 |
+| **迭代阶段** | Iteration Phase | 迭代的生命周期阶段：DEVELOPING（开发中）→ TESTING（测试）→ STAGING（预发）→ RELEASE（发布） |
+| **流水线** | Pipeline | 定义一系列有序执行步骤的状态机，支持持久化和断点续跑 |
+| **迭代流水线** | Iteration Pipeline | 管理迭代阶段流转的流水线，控制迭代从开发到发布的整体流程 |
+| **阶段流水线** | Phase Pipeline | 管理单个迭代阶段内执行步骤的流水线，隶属于迭代流水线 |
+| **执行步骤** | Execution Step | 阶段流水线内的原子操作：CODE_CHECK（代码检查）→ BUILD（构建）→ PACKAGE（打包）→ DEPLOY（部署） |
+| **代码版本** | Code Version | 发布时创建的版本快照，包含版本标识、Git Tag、commit 信息 |
 
 ### 3.1 应用创建流程
 
